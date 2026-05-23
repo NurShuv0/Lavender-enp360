@@ -4,31 +4,31 @@
    ========================================================================== */
 
 :root {
-    --color-bg: #FAF6F0;
+    --color-bg: #F3EDFC; /* Soft Lavender Mist Background */
     --color-surface: #ffffff;
-    --color-surface-glass: rgba(255, 255, 255, 0.75);
-    --color-surface-dark: #1A1516;
-    --color-text: #2A2224;
+    --color-surface-glass: rgba(255, 255, 255, 0.8);
+    --color-surface-dark: #1D1420; /* Deep Midnight Purple-Dark */
+    --color-text: #2B202D; /* Royal Violet-Charcoal Typography */
     --color-text-light: #ffffff;
-    --color-muted: #6E6264;
-    --color-border: rgba(42, 34, 36, 0.1);
+    --color-muted: #726275; /* Lavender-Gray Muted Text */
+    --color-border: rgba(59, 34, 63, 0.1);
     --color-border-focus: rgba(212, 175, 55, 0.4);
     --color-gold: #C5A880;
     --color-gold-hover: #B59870;
     --color-gold-bright: #D4AF37;
     --color-gold-soft: rgba(197, 168, 128, 0.12);
-    --color-blush: #F5E6E3;
-    --color-blush-soft: #FAF2F0;
-    --color-plum: #4A3538;
-    --color-plum-soft: rgba(74, 53, 56, 0.05);
+    --color-blush: #EAE0F5; /* Velvet Lavender Blush Accent */
+    --color-blush-soft: #FAF7FE; /* Delicate Lavender-White Cream */
+    --color-plum: #3B223F; /* Elegant Royal Eggplant Plum */
+    --color-plum-soft: rgba(59, 34, 63, 0.05);
     
     --font-serif: 'Cormorant Garamond', 'Playfair Display', serif;
     --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
     
-    --shadow-sm: 0 4px 12px rgba(42, 34, 36, 0.03);
-    --shadow-md: 0 12px 32px rgba(42, 34, 36, 0.06);
-    --shadow-lg: 0 20px 48px rgba(42, 34, 36, 0.1);
-    --shadow-glass: 0 8px 32px 0 rgba(42, 34, 36, 0.04);
+    --shadow-sm: 0 4px 12px rgba(59, 34, 63, 0.03);
+    --shadow-md: 0 12px 32px rgba(59, 34, 63, 0.06);
+    --shadow-lg: 0 20px 48px rgba(59, 34, 63, 0.1);
+    --shadow-glass: 0 8px 32px 0 rgba(59, 34, 63, 0.04);
     
     --radius-sm: 8px;
     --radius-md: 16px;
@@ -57,8 +57,8 @@ body {
     font-family: var(--font-sans);
     color: var(--color-text);
     background: 
-        radial-gradient(circle at 0% 0%, rgba(245, 230, 227, 0.4), transparent 45%),
-        radial-gradient(circle at 100% 100%, rgba(197, 168, 128, 0.15), transparent 45%),
+        radial-gradient(circle at 0% 0%, rgba(220, 185, 240, 0.4), transparent 45%),
+        radial-gradient(circle at 100% 100%, rgba(197, 168, 128, 0.12), transparent 45%),
         var(--color-bg);
     line-height: 1.6;
     overflow-x: hidden;

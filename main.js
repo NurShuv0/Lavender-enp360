@@ -99,6 +99,13 @@ window.BookingApp = {
         document.getElementById("drawer-overlay").addEventListener("click", () => this.closeDrawer());
         document.getElementById("drawer-continue-shopping").addEventListener("click", () => this.closeDrawer());
         
+        // Mobile Menu Drawer Open/Close
+        document.getElementById("mobile-menu-trigger").addEventListener("click", () => this.openMobileMenu());
+        document.getElementById("mobile-nav-close-btn").addEventListener("click", () => this.closeDrawer());
+        document.querySelectorAll(".mobile-nav-link").forEach(link => {
+            link.addEventListener("click", () => this.closeDrawer());
+        });
+        
         // Checkout Section Show/Hide
         document.getElementById("proceed-checkout-btn").addEventListener("click", () => {
             this.closeDrawer();
@@ -445,9 +452,15 @@ window.BookingApp = {
         document.getElementById("agenda-drawer").classList.add("active");
     },
 
+    openMobileMenu() {
+        document.getElementById("drawer-overlay").classList.add("active");
+        document.getElementById("mobile-nav-drawer").style.transform = "translateX(0)";
+    },
+
     closeDrawer() {
         document.getElementById("drawer-overlay").classList.remove("active");
         document.getElementById("agenda-drawer").classList.remove("active");
+        document.getElementById("mobile-nav-drawer").style.transform = "translateX(-100%)";
     },
 
     updateBadgeCount() {

@@ -197,6 +197,22 @@ header {
     gap: 1.5rem;
 }
 
+.mobile-menu-trigger {
+    display: none;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: var(--color-surface-dark);
+    padding: 0.5rem;
+    align-items: center;
+    justify-content: center;
+    transition: transform var(--transition-fast);
+}
+
+.mobile-menu-trigger:hover {
+    transform: scale(1.08);
+}
+
 /* Booking Agenda Floating Icon */
 .agenda-trigger {
     position: relative;
@@ -424,7 +440,7 @@ header {
 
 .services-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
     gap: 2.5rem;
 }
 
@@ -1712,6 +1728,12 @@ footer {
 @media (max-width: 768px) {
     .nav-links {
         display: none; /* Simplify nav on mobile */
+    }
+    .mobile-menu-trigger {
+        display: flex;
+    }
+    .header-reserve-btn {
+        display: none;
     }
     .services-grid {
         grid-template-columns: 1fr;

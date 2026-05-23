@@ -53,7 +53,16 @@
                     </svg>
                     <span class="agenda-badge" id="header-agenda-badge" style="display: none;">0</span>
                 </button>
-                <a href="#services-section" class="btn-primary">Reserve Session</a>
+                <a href="#services-section" class="btn-primary header-reserve-btn">Reserve Session</a>
+                
+                <!-- Mobile Menu Hamburger Trigger -->
+                <button class="mobile-menu-trigger" id="mobile-menu-trigger" aria-label="Open Navigation Menu">
+                    <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <line x1="4" y1="6" x2="20" y2="6"></line>
+                        <line x1="4" y1="12" x2="20" y2="12"></line>
+                        <line x1="4" y1="18" x2="20" y2="18"></line>
+                    </svg>
+                </button>
             </div>
         </div>
     </header>
@@ -174,6 +183,28 @@
 
     <!-- 6. Sliding "Booking Agenda" Drawer Sidebar -->
     <div class="drawer-overlay" id="drawer-overlay"></div>
+    
+    <!-- Mobile Menu Drawer -->
+    <div class="drawer" id="mobile-nav-drawer" style="left: 0; right: auto; transform: translateX(-100%);">
+        <div class="drawer-header">
+            <h3 class="drawer-title">Menu</h3>
+            <button class="drawer-close-btn" id="mobile-nav-close-btn" aria-label="Close Menu">
+                <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+        </div>
+        <div class="drawer-body" style="padding: 2.5rem 2rem;">
+            <ul style="list-style: none; display: flex; flex-direction: column; gap: 2rem;">
+                <li><a href="#about-section" class="mobile-nav-link" style="font-family: var(--font-serif); font-size: 1.8rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-surface-dark);">The Artist</a></li>
+                <li><a href="#services-section" class="mobile-nav-link" style="font-family: var(--font-serif); font-size: 1.8rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-surface-dark);">Bespoke Services</a></li>
+                <li><a href="#portfolio-section" class="mobile-nav-link" style="font-family: var(--font-serif); font-size: 1.8rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-surface-dark);">The Portfolio</a></li>
+                <li><a href="#faq-section" class="mobile-nav-link" style="font-family: var(--font-serif); font-size: 1.8rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-surface-dark);">Booking Guide</a></li>
+            </ul>
+            <div style="margin-top: 4rem; border-top: 1px solid var(--color-border); padding-top: 2rem;">
+                <a href="#services-section" class="btn-primary mobile-nav-link" style="display: block; text-align: center; width: 100%;">Reserve Session</a>
+            </div>
+        </div>
+    </div>
+
     <div class="drawer" id="agenda-drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-heading">
         <div class="drawer-header">
             <h3 class="drawer-title" id="drawer-heading">Your Booking Agenda</h3>

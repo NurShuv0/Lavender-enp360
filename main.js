@@ -1,9 +1,9 @@
 /**
  * LAVENDER’S GLAM STUDIO — Luxury Makeup Artist Booking & Portfolio Website
- * Core Frontend Interactive Logic & State Management
+ * Core Frontend Interactive Logic & State Management (Asynchronous DB-Integrated)
  */
 
-// 1. Service Catalog Definition
+// 1. Static Service Catalog Fallback (kept for offline/API failure resilience)
 const SERVICES_CATALOG = [
     {
         id: "bridal-couture",
@@ -57,9 +57,10 @@ const SERVICES_CATALOG = [
     }
 ];
 
-// 2. Global State Object
+// 2. Global State Object & Controller
 window.BookingApp = {
-    bookings: [],
+    bookings: [], // Synced directly from PHP session agenda
+    servicesCatalog: [], // Database-driven dynamic service packages
     currentYear: new Date().getFullYear(),
     currentMonth: new Date().getMonth(), // 0-indexed (Jan = 0)
     selectedDate: null,
@@ -69,27 +70,73 @@ window.BookingApp = {
     activeService: null, // Service object currently selected in modal
     
     // Core Functions
-    init() {
-        this.loadBookingsFromStorage();
+    async init() {
         this.bindEvents();
-        this.renderServices();
-        this.updateBadgeCount();
-        this.renderBookingAgenda();
+        await this.loadServices();
+        await this.fetchAgenda();
     },
 
-    loadBookingsFromStorage() {
-        const stored = localStorage.getItem("lavender_bookings");
-        if (stored) {
-            try {
-                this.bookings = JSON.parse(stored);
-            } catch (e) {
-                this.bookings = [];
+    // Kept as no-ops for backward compatibility and clean execution
+    loadBookingsFromStorage() {},
+    saveBookingsToStorage() {},
+
+    // Fetch dynamic catalog from DB endpoint
+    async loadServices() {
+        try {
+            const res = await fetch('index.php?action=get-services');
+            if (!res.ok) throw new Error("Catalog fetch failed");
+            const data = await res.json();
+            if (data && Array.isArray(data)) {
+                this.servicesCatalog = data.map(item => ({
+                    id: item.id,
+                    name: item.title,
+                    tag: item.tag,
+                    desc: item.description,
+                    basePrice: parseFloat(item.base_price),
+                    duration: item.duration_minutes + " Minutes",
+                    image: item.image_path
+                }));
+                this.renderServices();
+                return;
             }
+        } catch (e) {
+            console.warn("Could not load dynamic database services, using static catalog fallback:", e);
         }
+        
+        // Fallback to static catalog if API is unavailable
+        this.servicesCatalog = SERVICES_CATALOG.map(s => ({
+            id: s.id,
+            name: s.name,
+            tag: s.tag,
+            desc: s.desc,
+            basePrice: s.basePrice,
+            duration: s.duration,
+            image: s.image
+        }));
+        this.renderServices();
     },
 
-    saveBookingsToStorage() {
-        localStorage.setItem("lavender_bookings", JSON.stringify(this.bookings));
+    // Fetch PHP session agenda and synchronize front-end state
+    async fetchAgenda() {
+        try {
+            const res = await fetch('index.php?action=get-agenda');
+            const data = await res.json();
+            this.bookings = data.items || [];
+            
+            this.updateBadgeCount();
+            this.renderBookingAgenda();
+            
+            // Sync pricing parameters
+            document.getElementById("drawer-subtotal").textContent = `${data.subtotal.toLocaleString()} BDT`;
+            document.getElementById("drawer-travel").textContent = data.travel > 0 ? `+${data.travel.toLocaleString()} BDT` : "0 BDT";
+            document.getElementById("drawer-total").textContent = `${data.total.toLocaleString()} BDT`;
+            
+            if (document.getElementById("checkout-section").classList.contains("active")) {
+                this.renderCheckoutSummary();
+            }
+        } catch (e) {
+            console.error("Failed to fetch session agenda:", e);
+        }
     },
 
     bindEvents() {
@@ -115,8 +162,13 @@ window.BookingApp = {
         // Modals Close
         document.querySelectorAll(".modal-close-btn").forEach(btn => {
             btn.addEventListener("click", (e) => {
-                const modal = e.target.closest(".modal-overlay");
+                const modal = e.target.closest(".modal-overlay") || e.target.closest(".admin-modal-overlay") || e.target.closest(".receipt-wrapper")?.closest(".modal-overlay");
                 if (modal) modal.classList.remove("active");
+                // Receipt close fallback
+                const recModal = document.getElementById("receipt-modal");
+                if (recModal && e.target.closest("#receipt-modal")) {
+                    recModal.classList.remove("active");
+                }
             });
         });
 
@@ -158,19 +210,20 @@ window.BookingApp = {
             });
         });
 
-        // Location form check logic: toggle event address field dynamically in checkout
+        // Checkout inquiry submission handler
         document.getElementById("checkout-form").addEventListener("submit", (e) => {
             e.preventDefault();
             this.submitInquiry();
         });
     },
 
-    // 3. Render Services Catalog
+    // Render Services Catalog Grid
     renderServices() {
         const grid = document.getElementById("services-grid");
+        if (!grid) return;
         grid.innerHTML = "";
 
-        SERVICES_CATALOG.forEach(service => {
+        this.servicesCatalog.forEach(service => {
             const card = document.createElement("div");
             card.className = "service-card";
             card.innerHTML = `
@@ -198,9 +251,9 @@ window.BookingApp = {
         });
     },
 
-    // 4. Open Custom Booking Modal
+    // Open Custom Booking Modal & Fetch Busy Agenda Slots
     openServiceModal(serviceId) {
-        const service = SERVICES_CATALOG.find(s => s.id === serviceId);
+        const service = this.servicesCatalog.find(s => s.id === serviceId);
         if (!service) return;
 
         this.activeService = service;
@@ -222,16 +275,34 @@ window.BookingApp = {
 
         // Render Widget elements
         this.renderCalendar();
-        this.renderTimeSlots();
+        this.renderTimeSlots([]); // Initially show clean slots grid
         this.updateModalPricing();
 
         // Show Modal
         document.getElementById("booking-modal").classList.add("active");
     },
 
-    // 5. Calendar Generation Grid
+    // Fetch Booked Slots Availability dynamically from PHP API
+    async fetchTimeSlotAvailability(date) {
+        const yyyy = date.getFullYear();
+        const mm = String(date.getMonth() + 1).padStart(2, '0');
+        const dd = String(date.getDate()).padStart(2, '0');
+        const dateStr = `${yyyy}-${mm}-${dd}`;
+
+        try {
+            const res = await fetch(`index.php?action=check-availability&date=${dateStr}`);
+            const busySlots = await res.json();
+            this.renderTimeSlots(busySlots);
+        } catch (e) {
+            console.error("Failed to load time slot availability:", e);
+            this.renderTimeSlots([]);
+        }
+    },
+
+    // Calendar Generation Grid
     renderCalendar() {
         const container = document.getElementById("calendar-grid-container");
+        if (!container) return;
         container.innerHTML = "";
 
         const monthNames = [
@@ -281,7 +352,7 @@ window.BookingApp = {
                 dayButton.classList.add("disabled");
                 dayButton.disabled = true;
             } else {
-                // If this cell matches the selected date state, highlight it
+                // Highlight selected cell
                 if (this.selectedDate && 
                     this.selectedDate.getFullYear() === this.currentYear &&
                     this.selectedDate.getMonth() === this.currentMonth &&
@@ -297,6 +368,9 @@ window.BookingApp = {
                     dayButton.classList.add("selected");
                     
                     this.showToast(`Selected date: ${this.formatDatePretty(this.selectedDate)}`, "success");
+                    
+                    // Query busy slots from PHP PDO backend
+                    this.fetchTimeSlotAvailability(this.selectedDate);
                 });
             }
             container.appendChild(dayButton);
@@ -307,10 +381,12 @@ window.BookingApp = {
         const currentMonthToday = new Date().getMonth();
         const currentYearToday = new Date().getFullYear();
         
-        if (this.currentYear === currentYearToday && this.currentMonth === currentMonthToday) {
-            prevBtn.disabled = true;
-        } else {
-            prevBtn.disabled = false;
+        if (prevBtn) {
+            if (this.currentYear === currentYearToday && this.currentMonth === currentMonthToday) {
+                prevBtn.disabled = true;
+            } else {
+                prevBtn.disabled = false;
+            }
         }
     },
 
@@ -326,9 +402,10 @@ window.BookingApp = {
         this.renderCalendar();
     },
 
-    // 6. Time Slot Rendering
-    renderTimeSlots() {
+    // Render Time Slots & Check against occupied slots returned by database
+    renderTimeSlots(busySlots = []) {
         const slotsGrid = document.getElementById("slots-grid-container");
+        if (!slotsGrid) return;
         slotsGrid.innerHTML = "";
 
         const availableSlots = [
@@ -341,30 +418,40 @@ window.BookingApp = {
             btn.type = "button";
             btn.textContent = slot;
 
-            if (this.selectedTimeSlot === slot) {
-                btn.classList.add("active");
-            }
+            // Match slot ignoring leading zeros (e.g. "08:30 AM" -> "8:30 AM")
+            const normalizedSlot = slot.replace(/^0/, '');
+            const isBooked = busySlots.includes(normalizedSlot);
 
-            btn.addEventListener("click", () => {
-                this.selectedTimeSlot = slot;
-                
-                // Toggle active visual class
-                document.querySelectorAll(".slot-chip").forEach(c => c.classList.remove("active"));
-                btn.classList.add("active");
-                
-                this.showToast(`Time slot selected: ${slot}`, "success");
-            });
+            if (isBooked) {
+                btn.className = "slot-chip disabled";
+                btn.disabled = true;
+                btn.title = "This slot is already booked.";
+            } else {
+                if (this.selectedTimeSlot === slot) {
+                    btn.classList.add("active");
+                }
+
+                btn.addEventListener("click", () => {
+                    this.selectedTimeSlot = slot;
+                    
+                    document.querySelectorAll(".slot-chip").forEach(c => c.classList.remove("active"));
+                    btn.classList.add("active");
+                    
+                    this.showToast(`Time slot selected: ${slot}`, "success");
+                });
+            }
 
             slotsGrid.appendChild(btn);
         });
     },
 
-    // 7. Travel Location Fee Toggles
+    // Travel Location Fee Toggles
     selectLocation(type) {
         this.selectedLocation = type;
         
         document.querySelectorAll(".location-card").forEach(card => card.classList.remove("active"));
-        document.getElementById(`loc-${type}`).classList.add("active");
+        const locCard = document.getElementById(`loc-${type}`);
+        if (locCard) locCard.classList.add("active");
 
         this.updateModalPricing();
         this.showToast(`Location set to: ${type === "studio" ? "Studio Atelier" : "On-Location Guest Service"}`, "success");
@@ -379,17 +466,19 @@ window.BookingApp = {
 
         if (this.selectedLocation === "location") {
             total += this.travelFee;
-            feeContainer.style.display = "flex";
-            document.getElementById("widget-travel-fee").textContent = `+${this.travelFee.toLocaleString()} BDT`;
+            if (feeContainer) {
+                feeContainer.style.display = "flex";
+                document.getElementById("widget-travel-fee").textContent = `+${this.travelFee.toLocaleString()} BDT`;
+            }
         } else {
-            feeContainer.style.display = "none";
+            if (feeContainer) feeContainer.style.display = "none";
         }
 
-        widgetTotal.textContent = `${total.toLocaleString()} BDT`;
+        if (widgetTotal) widgetTotal.textContent = `${total.toLocaleString()} BDT`;
     },
 
-    // 8. Add Bookings to local state object
-    addActiveBooking() {
+    // Dispatch AJAX request to add slot inquiry to the PHP session agenda
+    async addActiveBooking() {
         if (!this.activeService) return;
 
         // Validation
@@ -402,65 +491,93 @@ window.BookingApp = {
             return;
         }
 
-        const price = this.activeService.basePrice + (this.selectedLocation === "location" ? this.travelFee : 0);
-        
-        const bookingItem = {
-            id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
+        const yyyy = this.selectedDate.getFullYear();
+        const mm = String(this.selectedDate.getMonth() + 1).padStart(2, '0');
+        const dd = String(this.selectedDate.getDate()).padStart(2, '0');
+        const dateStr = `${yyyy}-${mm}-${dd}`;
+
+        const payload = {
             serviceId: this.activeService.id,
-            serviceName: this.activeService.name,
-            serviceTag: this.activeService.tag,
-            price: price,
-            basePrice: this.activeService.basePrice,
-            date: this.selectedDate.toISOString(),
+            date: dateStr,
             timeSlot: this.selectedTimeSlot,
-            location: this.selectedLocation,
-            duration: this.activeService.duration
+            location: this.selectedLocation
         };
 
-        this.bookings.push(bookingItem);
-        this.saveBookingsToStorage();
-        
-        // Sync & Update UI
-        this.updateBadgeCount();
-        this.renderBookingAgenda();
-        
-        // Close modal and notify
-        document.getElementById("booking-modal").classList.remove("active");
-        this.showToast("Appointment successfully reserved in Agenda!", "success");
+        try {
+            const res = await fetch('index.php?action=add-to-agenda', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            });
+            const result = await res.json();
 
-        // Slide open the booking drawer immediately
-        setTimeout(() => this.openDrawer(), 500);
-    },
+            if (result.status === 'success') {
+                await this.fetchAgenda();
+                
+                // Close modal and notify
+                document.getElementById("booking-modal").classList.remove("active");
+                this.showToast("Slot successfully reserved in your Agenda!", "success");
 
-    removeBooking(id) {
-        this.bookings = this.bookings.filter(item => item.id !== id);
-        this.saveBookingsToStorage();
-        
-        this.updateBadgeCount();
-        this.renderBookingAgenda();
-        this.showToast("Reservation removed.", "success");
-
-        // Sync with checkout review panels if active
-        if (document.getElementById("checkout-section").classList.contains("active")) {
-            this.renderCheckoutSummary();
+                // Slide open the booking drawer immediately
+                setTimeout(() => this.openDrawer(), 500);
+            } else {
+                this.showToast(result.message || "Failed to add slot to agenda.", "error");
+            }
+        } catch (e) {
+            console.error("Error adding active booking:", e);
+            this.showToast("Network error. Failed to add booking.", "error");
         }
     },
 
-    // 9. Sliding Drawer Syncing & Rendering
+    // Dispatch AJAX request to remove item from session agenda
+    async removeBooking(key) {
+        try {
+            const res = await fetch('index.php?action=remove-from-agenda', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ key: key })
+            });
+            const result = await res.json();
+
+            if (result.status === 'success') {
+                await this.fetchAgenda();
+                this.showToast("Reservation removed.", "success");
+            } else {
+                this.showToast(result.message || "Failed to remove reservation.", "error");
+            }
+        } catch (e) {
+            console.error("Error removing booking:", e);
+            this.showToast("Network error. Failed to remove reservation.", "error");
+        }
+    },
+
+    // Sliding Drawer Syncing & Rendering
     openDrawer() {
-        document.getElementById("drawer-overlay").classList.add("active");
-        document.getElementById("agenda-drawer").classList.add("active");
+        const overlay = document.getElementById("drawer-overlay");
+        const drawer = document.getElementById("agenda-drawer");
+        if (overlay) overlay.classList.add("active");
+        if (drawer) drawer.classList.add("active");
     },
 
     openMobileMenu() {
-        document.getElementById("drawer-overlay").classList.add("active");
-        document.getElementById("mobile-nav-drawer").style.transform = "translateX(0)";
+        const overlay = document.getElementById("drawer-overlay");
+        const mobileNav = document.getElementById("mobile-nav-drawer");
+        if (overlay) overlay.classList.add("active");
+        if (mobileNav) mobileNav.style.transform = "translateX(0)";
     },
 
     closeDrawer() {
-        document.getElementById("drawer-overlay").classList.remove("active");
-        document.getElementById("agenda-drawer").classList.remove("active");
-        document.getElementById("mobile-nav-drawer").style.transform = "translateX(-100%)";
+        const overlay = document.getElementById("drawer-overlay");
+        const drawer = document.getElementById("agenda-drawer");
+        const mobileNav = document.getElementById("mobile-nav-drawer");
+        
+        if (overlay) overlay.classList.remove("active");
+        if (drawer) drawer.classList.remove("active");
+        if (mobileNav) mobileNav.style.transform = "translateX(-100%)";
     },
 
     updateBadgeCount() {
@@ -473,6 +590,7 @@ window.BookingApp = {
 
     renderBookingAgenda() {
         const container = document.getElementById("agenda-items-container");
+        if (!container) return;
         container.innerHTML = "";
 
         const footerPricing = document.getElementById("drawer-footer-pricing");
@@ -491,27 +609,27 @@ window.BookingApp = {
                     <p>Select from our luxurious signature packages and schedule your elite session.</p>
                 </div>
             `;
-            footerPricing.style.display = "none";
-            actionBtn.disabled = true;
-            actionBtn.style.opacity = "0.5";
-            actionBtn.style.cursor = "not-allowed";
+            if (footerPricing) footerPricing.style.display = "none";
+            if (actionBtn) {
+                actionBtn.disabled = true;
+                actionBtn.style.opacity = "0.5";
+                actionBtn.style.cursor = "not-allowed";
+            }
             return;
         }
 
-        footerPricing.style.display = "block";
-        actionBtn.disabled = false;
-        actionBtn.style.opacity = "1";
-        actionBtn.style.cursor = "pointer";
-
-        let subtotal = 0;
-        let totalTravelFees = 0;
+        if (footerPricing) footerPricing.style.display = "block";
+        if (actionBtn) {
+            actionBtn.disabled = false;
+            actionBtn.style.opacity = "1";
+            actionBtn.style.cursor = "pointer";
+        }
 
         this.bookings.forEach(item => {
-            subtotal += item.basePrice;
             const isLocation = item.location === "location";
-            if (isLocation) {
-                totalTravelFees += this.travelFee;
-            }
+            
+            // Render local timezone safe parsed date
+            const parsedDate = new Date(item.date.replace(/-/g, "/"));
 
             const itemEl = document.createElement("div");
             itemEl.className = "agenda-item";
@@ -520,7 +638,7 @@ window.BookingApp = {
                     <h4 class="agenda-item-name">${item.serviceName}</h4>
                     <div class="agenda-item-detail">
                         <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-                        <span>${item.timeSlot} — ${this.formatDatePretty(new Date(item.date))}</span>
+                        <span>${item.timeSlot} — ${this.formatDatePretty(parsedDate)}</span>
                     </div>
                     <div class="agenda-item-detail">
                         <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 2a8 8 0 0 0-8 8c0 5.25 8 12 8 12s8-6.75 8-12a8 8 0 0 0-8-8z"></path><circle cx="12" cy="10" r="3"></circle></svg>
@@ -528,21 +646,15 @@ window.BookingApp = {
                     </div>
                     <h5 class="agenda-item-price">${item.price.toLocaleString()} BDT</h5>
                 </div>
-                <button class="agenda-item-remove" onclick="BookingApp.removeBooking('${item.id}')" title="Remove Session">
+                <button class="agenda-item-remove" onclick="BookingApp.removeBooking('${item.key}')" title="Remove Session">
                     <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                 </button>
             `;
             container.appendChild(itemEl);
         });
-
-        const grandTotal = subtotal + totalTravelFees;
-
-        document.getElementById("drawer-subtotal").textContent = `${subtotal.toLocaleString()} BDT`;
-        document.getElementById("drawer-travel").textContent = totalTravelFees > 0 ? `+${totalTravelFees.toLocaleString()} BDT` : "0 BDT";
-        document.getElementById("drawer-total").textContent = `${grandTotal.toLocaleString()} BDT`;
     },
 
-    // 10. Checkout Inquiry Transitions & Submissions
+    // Checkout Inquiry Transitions & Submissions
     showCheckoutSection() {
         if (this.bookings.length === 0) {
             this.showToast("Your booking agenda is empty.", "error");
@@ -550,20 +662,23 @@ window.BookingApp = {
         }
 
         const section = document.getElementById("checkout-section");
+        if (!section) return;
         section.classList.add("active");
         
-        // Sync fields
+        // Dynamic location address fields
         const hasLocation = this.bookings.some(b => b.location === "location");
         const addressGroup = document.getElementById("field-address-group");
         const addressInput = document.getElementById("client-address");
         
-        if (hasLocation) {
-            addressGroup.style.display = "flex";
-            addressInput.required = true;
-            this.showToast("On-location session selected. Event address is required.", "success");
-        } else {
-            addressGroup.style.display = "none";
-            addressInput.required = false;
+        if (addressGroup && addressInput) {
+            if (hasLocation) {
+                addressGroup.style.display = "flex";
+                addressInput.required = true;
+                this.showToast("On-location session selected. Event address is required.", "success");
+            } else {
+                addressGroup.style.display = "none";
+                addressInput.required = false;
+            }
         }
 
         this.renderCheckoutSummary();
@@ -576,10 +691,12 @@ window.BookingApp = {
 
     renderCheckoutSummary() {
         const summaryList = document.getElementById("checkout-summary-list");
+        if (!summaryList) return;
         summaryList.innerHTML = "";
 
         if (this.bookings.length === 0) {
-            document.getElementById("checkout-section").classList.remove("active");
+            const checkoutSect = document.getElementById("checkout-section");
+            if (checkoutSect) checkoutSect.classList.remove("active");
             return;
         }
 
@@ -591,13 +708,15 @@ window.BookingApp = {
             const isLocation = item.location === "location";
             if (isLocation) totalTravel += this.travelFee;
 
+            const parsedDate = new Date(item.date.replace(/-/g, "/"));
+
             const el = document.createElement("div");
             el.className = "summary-item";
             el.innerHTML = `
                 <div class="summary-item-info">
                     <h6>${item.serviceName}</h6>
                     <p>
-                        <span>📅 ${this.formatDatePretty(new Date(item.date))} @ ${item.timeSlot}</span>
+                        <span>📅 ${this.formatDatePretty(parsedDate)} @ ${item.timeSlot}</span>
                         <span>•</span>
                         <span>📍 ${isLocation ? "On-Location" : "In-Studio"}</span>
                     </p>
@@ -614,112 +733,94 @@ window.BookingApp = {
         document.getElementById("checkout-total").textContent = `${total.toLocaleString()} BDT`;
     },
 
-    submitInquiry() {
+    // Transaction-secure client submission to backend PDO endpoint
+    async submitInquiry() {
         const fullName = document.getElementById("client-name").value.trim();
         const email = document.getElementById("client-email").value.trim();
         const whatsapp = document.getElementById("client-phone").value.trim();
         const address = document.getElementById("client-address").value.trim();
         const skinType = document.getElementById("client-skin").value;
         const preference = document.getElementById("client-preferences").value.trim();
-        
-        // Compile receipt rows for receipt modal
-        const receiptCard = document.getElementById("receipt-detail-card");
-        receiptCard.innerHTML = "";
 
-        let subtotal = 0;
-        let travelTotal = 0;
-        let whatsappContent = `🌸 *LAVENDER’S GLAM STUDIO — Bespoke Luxury Makeup Booking* 🌸\n\n`;
-        whatsappContent += `*Client Details:*\n`;
-        whatsappContent += `• *Name:* ${fullName}\n`;
-        whatsappContent += `• *WhatsApp/Phone:* ${whatsapp}\n`;
-        whatsappContent += `• *Email:* ${email}\n`;
-        if (skinType) whatsappContent += `• *Skin Type:* ${skinType}\n`;
-        if (preference) whatsappContent += `• *Makeup Preferences:* ${preference}\n`;
-        if (address) whatsappContent += `• *Event Address:* ${address}\n`;
-        
-        whatsappContent += `\n*Reserved Sessions:*\n`;
+        const fd = new FormData();
+        fd.append('name', fullName);
+        fd.append('email', email);
+        fd.append('phone', whatsapp);
+        fd.append('address', address);
+        fd.append('skin', skinType);
+        fd.append('preferences', preference);
 
-        this.bookings.forEach((item, index) => {
-            subtotal += item.basePrice;
-            const isLocation = item.location === "location";
-            if (isLocation) travelTotal += this.travelFee;
+        try {
+            const res = await fetch('index.php?action=submit-booking', {
+                method: 'POST',
+                body: fd
+            });
+            const result = await res.json();
 
-            const prettyDate = this.formatDatePretty(new Date(item.date));
-            const locationStr = isLocation ? `On-Location (Event)` : `Studio Atelier (In-Studio)`;
+            if (result.status === 'success') {
+                // Reset local states
+                this.bookings = [];
+                this.updateBadgeCount();
+                this.renderBookingAgenda();
 
-            whatsappContent += `${index + 1}. *${item.serviceName}*\n`;
-            whatsappContent += `   • *Schedule:* ${prettyDate} @ ${item.timeSlot}\n`;
-            whatsappContent += `   • *Location:* ${locationStr}\n`;
-            whatsappContent += `   • *Investment:* ${item.price.toLocaleString()} BDT\n\n`;
+                // Reset forms
+                document.getElementById("checkout-form").reset();
 
-            // Receipt Modal rendering
-            const line = document.createElement("div");
-            line.className = "receipt-line";
-            line.innerHTML = `
-                <span>${item.serviceName} (${item.timeSlot})</span>
-                <span class="receipt-price">${item.price.toLocaleString()} BDT</span>
-            `;
-            receiptCard.appendChild(line);
-        });
+                // Populate dynamic compiled receipt
+                const receiptCard = document.getElementById("receipt-detail-card");
+                if (receiptCard) {
+                    receiptCard.innerHTML = "";
+                    result.receipt_lines.forEach(line => {
+                        const el = document.createElement("div");
+                        el.className = "receipt-line";
+                        if (line.label.includes("Bespoke Total Investment")) {
+                            el.innerHTML = `
+                                <strong>${line.label}</strong>
+                                <strong class="receipt-price">${line.val}</strong>
+                            `;
+                        } else {
+                            el.innerHTML = `
+                                <span>${line.label}</span>
+                                <span class="receipt-price">${line.val}</span>
+                            `;
+                        }
+                        receiptCard.appendChild(el);
+                    });
+                }
 
-        const grandTotal = subtotal + travelTotal;
+                // Bind click redirects to server compiled links
+                const waBtn = document.getElementById("btn-submit-wa");
+                const mailBtn = document.getElementById("btn-submit-mail");
+                
+                if (waBtn) {
+                    waBtn.onclick = () => {
+                        window.open(result.whatsapp_url, "_blank");
+                    };
+                }
+                if (mailBtn) {
+                    mailBtn.onclick = () => {
+                        window.location.href = result.mailto_url;
+                    };
+                }
 
-        whatsappContent += `*Financial Breakdown:*\n`;
-        whatsappContent += `• *Studio Services Subtotal:* ${subtotal.toLocaleString()} BDT\n`;
-        if (travelTotal > 0) whatsappContent += `• *On-Location Travel Surcharge:* ${travelTotal.toLocaleString()} BDT\n`;
-        whatsappContent += `• *Total Investment:* *${grandTotal.toLocaleString()} BDT*\n\n`;
-        whatsappContent += `🌸 Please confirm my slot reservations. Thank you!`;
+                // Hide customizer modal & trigger compiling success overlay
+                const bookingMdl = document.getElementById("booking-modal");
+                if (bookingMdl) bookingMdl.classList.remove("active");
 
-        // Add pricing totals to Receipt Modal
-        if (travelTotal > 0) {
-            const travelLine = document.createElement("div");
-            travelLine.className = "receipt-line";
-            travelLine.innerHTML = `
-                <span>Travel/Location Surcharge</span>
-                <span class="receipt-price">+${travelTotal.toLocaleString()} BDT</span>
-            `;
-            receiptCard.appendChild(travelLine);
+                const receiptMdl = document.getElementById("receipt-modal");
+                if (receiptMdl) receiptMdl.classList.add("active");
+
+                this.showToast(`Bespoke inquiry compiled! Reference: ${result.booking_ref}`, "success");
+            } else {
+                this.showToast(result.message || "Failed to submit booking inquiry.", "error");
+            }
+        } catch (e) {
+            console.error("Booking inquiry transaction error:", e);
+            this.showToast("Network error. Failed to compile your reservation request.", "error");
         }
-
-        const totalLine = document.createElement("div");
-        totalLine.className = "receipt-line";
-        totalLine.innerHTML = `
-            <span>Bespoke Total Investment</span>
-            <span class="receipt-price">${grandTotal.toLocaleString()} BDT</span>
-        `;
-        receiptCard.appendChild(totalLine);
-
-        // Bind redirect action buttons
-        const waNumber = "+8801974424264"; // Premium Studio WhatsApp Contact
-        const waUrl = `https://api.whatsapp.com/send?phone=${encodeURIComponent(waNumber)}&text=${encodeURIComponent(whatsappContent)}`;
-        document.getElementById("btn-submit-wa").onclick = () => {
-            window.open(waUrl, "_blank");
-        };
-
-        // Mailto fallbacks
-        const mailtoUrl = `mailto:appointments@lavendersglam.com?subject=Elite Makeup Artist Booking Inquiry&body=${encodeURIComponent(whatsappContent.replace(/\*/g, ""))}`;
-        document.getElementById("btn-submit-mail").onclick = () => {
-            window.location.href = mailtoUrl;
-        };
-
-        // Clear local storage and state upon booking success
-        this.bookings = [];
-        this.saveBookingsToStorage();
-        this.updateBadgeCount();
-        this.renderBookingAgenda();
-
-        // Clear form
-        document.getElementById("checkout-form").reset();
-
-        // Close details modal if open
-        document.getElementById("booking-modal").classList.remove("active");
-
-        // Trigger Receipt Modal Overlay
-        document.getElementById("receipt-modal").classList.add("active");
-        this.showToast("Inquiry compiled! Open receipt and select submission.", "success");
     },
 
-    // 11. Helper Systems (Pretty Dates & Custom Toasts)
+    // Helper Systems (Pretty Dates & Custom Toasts)
     formatDatePretty(dateObj) {
         const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
         const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -734,6 +835,7 @@ window.BookingApp = {
 
     showToast(message, type = "success") {
         const container = document.getElementById("toast-container");
+        if (!container) return;
         const toast = document.createElement("div");
         toast.className = `toast toast-${type}`;
         
@@ -748,7 +850,7 @@ window.BookingApp = {
         
         container.appendChild(toast);
         
-        // Auto remove toast after 3 seconds
+        // Auto-fadeout toast anims
         setTimeout(() => {
             toast.classList.add("removing");
             toast.addEventListener("animationend", () => toast.remove());
@@ -760,4 +862,3 @@ window.BookingApp = {
 document.addEventListener("DOMContentLoaded", () => {
     window.BookingApp.init();
 });
-

@@ -1481,7 +1481,10 @@ header {
     padding: 3rem;
     text-align: center;
     max-width: 520px;
-    width: 100%;
+    width: 95%;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-sizing: border-box;
     position: relative;
     box-shadow: var(--shadow-lg);
 }
@@ -1816,15 +1819,15 @@ footer {
 /* Glassmorphic Dropdown Menu */
 .profile-dropdown {
     display: none;
+    flex-direction: column;
     position: absolute;
     top: calc(100% + 8px);
     right: 0;
-    background: var(--color-surface-glass);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
-    border: 1px solid rgba(255, 255, 255, 0.4);
+    background: #ffffff !important; /* Solid fallback for clear visual separation */
+    border: 1.5px solid var(--color-gold);
     border-radius: var(--radius-md);
-    min-width: 160px;
+    min-width: 180px;
+    width: max-content;
     box-shadow: var(--shadow-lg);
     z-index: 1002;
     overflow: hidden;
@@ -1834,20 +1837,24 @@ footer {
 }
 
 .profile-dropdown.active {
-    display: block;
+    display: flex !important;
     transform: translateY(0);
     opacity: 1;
 }
 
 .profile-dropdown a {
-    display: block;
-    padding: 0.85rem 1.2rem;
-    font-size: 0.8rem;
+    display: block !important;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.9rem 1.5rem;
+    font-size: 0.85rem;
     color: var(--color-plum);
     font-weight: 600;
     text-decoration: none;
-    border-bottom: 1px solid var(--color-border);
+    border-bottom: 1.5px solid var(--color-border);
     transition: background var(--transition-fast);
+    white-space: nowrap !important; /* Absolutely prevent wrapping inside the dropdown items */
+    text-align: left;
 }
 
 .profile-dropdown a:last-child {
@@ -1867,10 +1874,11 @@ footer {
     border: 1px solid rgba(255, 255, 255, 0.4);
     border-radius: var(--radius-lg);
     padding: 3rem 2.5rem;
-    width: 100%;
+    width: 95%;
     max-width: 440px;
-    max-height: 95vh;
+    max-height: 90vh;
     overflow-y: auto;
+    box-sizing: border-box;
     position: relative;
     box-shadow: var(--shadow-lg);
     text-align: center;
@@ -1954,7 +1962,10 @@ footer {
     border-radius: var(--radius-lg);
     padding: 3rem;
     max-width: 680px;
-    width: 100%;
+    width: 95%;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-sizing: border-box;
     position: relative;
     box-shadow: var(--shadow-lg);
     text-align: center;
@@ -2044,27 +2055,68 @@ footer {
 /* User Auth & Booking History Modal Mobile Scale */
 @media (max-width: 480px) {
     .auth-wrapper {
-        padding: 2.2rem 1.6rem;
+        padding: 2rem 1.25rem !important; /* Slightly more compact horizontal padding */
         border-radius: var(--radius-md);
         max-width: 95%;
         box-sizing: border-box;
     }
     .auth-title {
-        font-size: 1.5rem;
-        margin-bottom: 1rem;
+        font-size: 1.4rem !important;
+        margin-bottom: 0.8rem !important;
+    }
+    .auth-subtitle {
+        font-size: 0.78rem !important;
+        margin-bottom: 1rem !important;
     }
     .auth-tabs {
-        margin-bottom: 1.5rem;
-        gap: 1rem;
+        margin-bottom: 1.2rem !important;
+        gap: 0.8rem !important;
     }
     .auth-tab-btn {
-        font-size: 0.76rem;
+        font-size: 0.72rem !important;
+        padding: 0.5rem 0.1rem !important;
+    }
+    .form-group {
+        margin-bottom: 0.8rem !important; /* Reduce margins to avoid scrolling on small screens */
+        gap: 0.35rem !important;
+    }
+    .form-label {
+        font-size: 0.68rem !important;
+    }
+    .form-input {
+        padding: 0.75rem 1rem !important; /* Slightly smaller input padding */
+        font-size: 0.85rem !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
     }
     .bookings-wrapper {
-        padding: 2.2rem 1.6rem;
+        padding: 2rem 1.25rem !important;
         border-radius: var(--radius-md);
         max-width: 95%;
         box-sizing: border-box;
+    }
+}
+
+@media (max-width: 360px) {
+    .auth-wrapper {
+        padding: 1.5rem 1rem !important; /* Ultimate compact layout for tiny screens */
+    }
+    .auth-title {
+        font-size: 1.25rem !important;
+    }
+    .auth-subtitle {
+        font-size: 0.74rem !important;
+        margin-bottom: 0.8rem !important;
+    }
+    .auth-tabs {
+        margin-bottom: 1rem !important;
+    }
+    .form-group {
+        margin-bottom: 0.6rem !important;
+    }
+    .form-input {
+        padding: 0.65rem 0.85rem !important;
+        font-size: 0.8rem !important;
     }
 }
 

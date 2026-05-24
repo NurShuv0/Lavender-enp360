@@ -1,6 +1,6 @@
 /**
  * LAVENDER’S GLAM STUDIO — Luxury Makeup Artist Booking & Portfolio Website
- * Core Frontend Interactive Logic & State Management (Asynchronous DB-Integrated)
+ * Core Frontend Interactive Logic & State Management (Asynchronous DB-Integrated with Auth & History)
  */
 
 // 1. Static Service Catalog Fallback (kept for offline/API failure resilience)
@@ -61,6 +61,8 @@ const SERVICES_CATALOG = [
 window.BookingApp = {
     bookings: [], // Synced directly from PHP session agenda
     servicesCatalog: [], // Database-driven dynamic service packages
+    user: null, // Logged in user profile state context
+    authCallback: null, // Callback to run upon successful login/registration
     currentYear: new Date().getFullYear(),
     currentMonth: new Date().getMonth(), // 0-indexed (Jan = 0)
     selectedDate: null,
@@ -74,6 +76,7 @@ window.BookingApp = {
         this.bindEvents();
         await this.loadServices();
         await this.fetchAgenda();
+        await this.fetchUserState();
     },
 
     // Kept as no-ops for backward compatibility and clean execution
@@ -139,6 +142,61 @@ window.BookingApp = {
         }
     },
 
+    // Retrieve user session state from backend
+    async fetchUserState() {
+        try {
+            const res = await fetch('index.php?action=get-user-state');
+            const data = await res.json();
+            if (data.logged_in) {
+                this.user = data.user;
+                this.autofillCheckoutFields();
+            } else {
+                this.user = null;
+            }
+            this.updateHeaderUserWidget();
+        } catch (e) {
+            console.error("Failed to query user authentication status:", e);
+        }
+    },
+
+    // Autofill client questionnaire if user is signed in
+    autofillCheckoutFields() {
+        if (!this.user) return;
+        const nameField = document.getElementById("client-name");
+        const emailField = document.getElementById("client-email");
+        const phoneField = document.getElementById("client-phone");
+
+        if (nameField) nameField.value = this.user.name;
+        if (emailField) emailField.value = this.user.email;
+        if (phoneField) phoneField.value = this.user.phone;
+    },
+
+    // Re-render sign in / sign out headers dynamically
+    updateHeaderUserWidget() {
+        const widget = document.getElementById("header-user-widget");
+        if (!widget) return;
+
+        if (this.user) {
+            const firstLetter = this.user.name.charAt(0).toUpperCase();
+            widget.innerHTML = `
+                <div class="user-profile-menu">
+                    <button class="profile-trigger" id="profile-trigger-btn" onclick="BookingApp.toggleProfileDropdown(event)">
+                        <span class="avatar-circle">${firstLetter}</span>
+                        <span class="user-display-name">${this.user.name}</span>
+                    </button>
+                    <div class="profile-dropdown" id="profile-dropdown">
+                        <a href="#" onclick="BookingApp.showMyBookings(event)">My Bookings</a>
+                        <a href="index.php?action=user-logout&redirect=1">Sign Out</a>
+                    </div>
+                </div>
+            `;
+        } else {
+            widget.innerHTML = `
+                <button class="btn-secondary header-login-btn" onclick="BookingApp.openAuthModal()" style="border-color: transparent; background: transparent; padding: 0 0.8rem; font-weight: 600; color: var(--color-plum);">Sign In</button>
+            `;
+        }
+    },
+
     bindEvents() {
         // Sliding Drawer Open/Close
         document.getElementById("agenda-trigger-btn").addEventListener("click", () => this.openDrawer());
@@ -153,23 +211,34 @@ window.BookingApp = {
             link.addEventListener("click", () => this.closeDrawer());
         });
         
-        // Checkout Section Show/Hide
+        // Checkout Section Gatekeeper transition click
         document.getElementById("proceed-checkout-btn").addEventListener("click", () => {
             this.closeDrawer();
-            this.showCheckoutSection();
+            if (!this.user) {
+                this.showToast("Authenticating session required to finalize slots.", "error");
+                // Open auth modal with callback to continue to checkout upon success!
+                this.openAuthModal(() => this.showCheckoutSection());
+            } else {
+                this.showCheckoutSection();
+            }
         });
         
-        // Modals Close
+        // Modals Close Action
         document.querySelectorAll(".modal-close-btn").forEach(btn => {
             btn.addEventListener("click", (e) => {
-                const modal = e.target.closest(".modal-overlay") || e.target.closest(".admin-modal-overlay") || e.target.closest(".receipt-wrapper")?.closest(".modal-overlay");
+                const modal = e.target.closest(".modal-overlay");
                 if (modal) modal.classList.remove("active");
-                // Receipt close fallback
-                const recModal = document.getElementById("receipt-modal");
-                if (recModal && e.target.closest("#receipt-modal")) {
-                    recModal.classList.remove("active");
-                }
             });
+        });
+
+        // Close profile dropdown when clicking outside
+        document.addEventListener("click", (e) => {
+            const dropdown = document.getElementById("profile-dropdown");
+            if (dropdown && dropdown.classList.contains("active")) {
+                if (!dropdown.contains(e.target) && !e.target.closest("#profile-trigger-btn")) {
+                    dropdown.classList.remove("active");
+                }
+            }
         });
 
         // FAQ accordion toggle
@@ -215,6 +284,190 @@ window.BookingApp = {
             e.preventDefault();
             this.submitInquiry();
         });
+    },
+
+    // User Authentication Modal Utilities
+    openAuthModal(callback = null) {
+        this.authCallback = callback;
+        document.getElementById("auth-modal").classList.add("active");
+    },
+
+    closeAuthModal() {
+        document.getElementById("auth-modal").classList.remove("active");
+        this.authCallback = null;
+    },
+
+    switchAuthTab(tab) {
+        document.querySelectorAll(".auth-tab-btn").forEach(b => b.classList.remove("active"));
+        document.querySelectorAll(".auth-form").forEach(f => f.classList.remove("active"));
+
+        if (tab === 'login') {
+            document.getElementById("tab-login-btn").classList.add("active");
+            document.getElementById("auth-login-form").classList.add("active");
+        } else {
+            document.getElementById("tab-register-btn").classList.add("active");
+            document.getElementById("auth-register-form").classList.add("active");
+        }
+    },
+
+    toggleProfileDropdown(event) {
+        event.stopPropagation();
+        const dropdown = document.getElementById("profile-dropdown");
+        if (dropdown) dropdown.classList.toggle("active");
+    },
+
+    // Dispatches AJAX login request to PHP PDO server
+    async userLogin(event) {
+        event.preventDefault();
+        const email = document.getElementById("login-email").value.trim();
+        const pass = document.getElementById("login-password").value.trim();
+
+        const fd = new FormData();
+        fd.append('email', email);
+        fd.append('password', pass);
+
+        try {
+            const res = await fetch('index.php?action=user-login', {
+                method: 'POST',
+                body: fd
+            });
+            const data = await res.json();
+
+            if (data.status === 'success') {
+                this.user = data.user;
+                this.updateHeaderUserWidget();
+                this.autofillCheckoutFields();
+                this.showToast(`Welcome back, ${data.user.name}!`, "success");
+                
+                // Clear inputs
+                document.getElementById("auth-login-form").reset();
+                this.closeAuthModal();
+
+                // Fire pending callbacks (e.g. checkout proceed)
+                if (this.authCallback) {
+                    const cb = this.authCallback;
+                    this.authCallback = null;
+                    cb();
+                }
+            } else {
+                this.showToast(data.message || "Invalid email or password.", "error");
+            }
+        } catch (e) {
+            console.error("AJAX login error:", e);
+            this.showToast("Network error. Authentication failed.", "error");
+        }
+    },
+
+    // Dispatches AJAX signup registry request to PHP PDO server
+    async userRegister(event) {
+        event.preventDefault();
+        const name = document.getElementById("reg-name").value.trim();
+        const email = document.getElementById("reg-email").value.trim();
+        const phone = document.getElementById("reg-phone").value.trim();
+        const pass = document.getElementById("reg-password").value.trim();
+
+        const fd = new FormData();
+        fd.append('full_name', name);
+        fd.append('email', email);
+        fd.append('phone', phone);
+        fd.append('password', pass);
+
+        try {
+            const res = await fetch('index.php?action=user-register', {
+                method: 'POST',
+                body: fd
+            });
+            const data = await res.json();
+
+            if (data.status === 'success') {
+                this.user = data.user;
+                this.updateHeaderUserWidget();
+                this.autofillCheckoutFields();
+                this.showToast(`Account successfully registered, ${data.user.name}!`, "success");
+                
+                // Clear inputs
+                document.getElementById("auth-register-form").reset();
+                this.closeAuthModal();
+
+                if (this.authCallback) {
+                    const cb = this.authCallback;
+                    this.authCallback = null;
+                    cb();
+                }
+            } else {
+                this.showToast(data.message || "Registration failed.", "error");
+            }
+        } catch (e) {
+            console.error("AJAX registration error:", e);
+            this.showToast("Network error. Registration failed.", "error");
+        }
+    },
+
+    // Dynamic timeline retrieval of Booking History
+    async showMyBookings(event) {
+        if (event) event.preventDefault();
+        const dropdown = document.getElementById("profile-dropdown");
+        if (dropdown) dropdown.classList.remove("active");
+
+        const listContainer = document.getElementById("user-bookings-list");
+        if (!listContainer) return;
+        listContainer.innerHTML = `<p style="text-align:center; color:var(--color-muted); padding:2rem;">Retrieving your salon history...</p>`;
+
+        // Open Modal overlay
+        document.getElementById("user-bookings-modal").classList.add("active");
+
+        try {
+            const res = await fetch('index.php?action=get-user-bookings');
+            const data = await res.json();
+
+            if (data.status === 'error') {
+                listContainer.innerHTML = `<p style="text-align:center; color:#c94c4c; padding:2rem;">${data.message}</p>`;
+                return;
+            }
+
+            if (data.length === 0) {
+                listContainer.innerHTML = `
+                    <div style="text-align:center; color:var(--color-muted); padding:3rem 1rem;">
+                        <p style="font-size:1.1rem; font-family:var(--font-serif); margin-bottom:0.5rem;">No Bookings Scheduled Yet</p>
+                        <p style="font-size:0.8rem;">Explore our Signature Menu to schedule your first elite session.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            listContainer.innerHTML = "";
+            data.forEach(bk => {
+                const card = document.createElement("div");
+                card.className = "booking-history-card";
+                card.innerHTML = `
+                    <div class="booking-history-header">
+                        <span class="booking-history-ref">${bk.reference}</span>
+                        <span class="booking-history-date">${bk.date}</span>
+                    </div>
+                    <div class="booking-history-services">${bk.services}</div>
+                    <div class="booking-history-details">
+                        <div>
+                            <span style="display:block; font-size:0.7rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--color-muted);">Venue Location</span>
+                            <span style="font-weight:600; color:var(--color-surface-dark);">${bk.address}</span>
+                        </div>
+                        <div style="text-align:right;">
+                            <span class="booking-history-total">${bk.total}</span>
+                            <div style="margin-top:0.25rem;">
+                                <span class="booking-history-badge badge-${bk.status}">${bk.status}</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                listContainer.appendChild(card);
+            });
+        } catch (e) {
+            console.error("Error loading user bookings timeline:", e);
+            listContainer.innerHTML = `<p style="text-align:center; color:#c94c4c; padding:2rem;">Connection failed. Can not retrieve bookings.</p>`;
+        }
+    },
+
+    closeBookingsModal() {
+        document.getElementById("user-bookings-modal").classList.remove("active");
     },
 
     // Render Services Catalog Grid
@@ -811,6 +1064,9 @@ window.BookingApp = {
                 if (receiptMdl) receiptMdl.classList.add("active");
 
                 this.showToast(`Bespoke inquiry compiled! Reference: ${result.booking_ref}`, "success");
+            } else if (result.status === 'auth_required') {
+                this.showToast(result.message || "Auth session required.", "error");
+                this.openAuthModal();
             } else {
                 this.showToast(result.message || "Failed to submit booking inquiry.", "error");
             }

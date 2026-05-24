@@ -198,9 +198,166 @@ if (isset($_GET['action'])) {
     $action = trim($_GET['action']);
     
     // API responses must output JSON
-    $api_actions = ['check-availability', 'get-agenda', 'add-to-agenda', 'remove-from-agenda', 'submit-booking', 'get-services', 'admin-login', 'admin-update-booking-status', 'admin-save-service', 'admin-delete-service'];
+    $api_actions = ['check-availability', 'get-agenda', 'add-to-agenda', 'remove-from-agenda', 'submit-booking', 'get-services', 'admin-login', 'admin-update-booking-status', 'admin-save-service', 'admin-delete-service', 'user-register', 'user-login', 'user-logout', 'get-user-state', 'get-user-bookings'];
     if (in_array($action, $api_actions)) {
         header('Content-Type: application/json');
+    }
+
+    // User Auth API: Get current logged-in user state
+    if ($action === 'get-user-state') {
+        if (isset($_SESSION['user_logged_in']) && $_SESSION['user_logged_in'] === true) {
+            echo json_encode([
+                'logged_in' => true,
+                'user' => [
+                    'id' => $_SESSION['user_id'],
+                    'name' => $_SESSION['user_name'],
+                    'email' => $_SESSION['user_email'],
+                    'phone' => $_SESSION['user_phone']
+                ]
+            ]);
+        } else {
+            echo json_encode(['logged_in' => false]);
+        }
+        exit;
+    }
+
+    // User Auth API: Register a new profile
+    if ($action === 'user-register') {
+        $name = trim($_POST['full_name'] ?? '');
+        $email = trim($_POST['email'] ?? '');
+        $phone = trim($_POST['phone'] ?? '');
+        $password = trim($_POST['password'] ?? '');
+
+        if (empty($name) || empty($email) || empty($phone) || empty($password)) {
+            echo json_encode(['status' => 'error', 'message' => 'All profile fields are required.']);
+            exit;
+        }
+
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            echo json_encode(['status' => 'error', 'message' => 'Invalid email address format.']);
+            exit;
+        }
+
+        // Duplication Validation
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM users WHERE email = ?");
+        $stmt->execute([$email]);
+        if ($stmt->fetchColumn() > 0) {
+            echo json_encode(['status' => 'error', 'message' => 'This email address is already registered.']);
+            exit;
+        }
+
+        // Hashing and relational insertion
+        $password_hash = password_hash($password, PASSWORD_BCRYPT);
+        $stmt = $pdo->prepare("INSERT INTO users (full_name, email, phone, password_hash) VALUES (?, ?, ?, ?)");
+        $stmt->execute([$name, $email, $phone, $password_hash]);
+        $user_id = $pdo->lastInsertId();
+
+        // Save active context in session
+        $_SESSION['user_logged_in'] = true;
+        $_SESSION['user_id'] = $user_id;
+        $_SESSION['user_name'] = $name;
+        $_SESSION['user_email'] = $email;
+        $_SESSION['user_phone'] = $phone;
+
+        echo json_encode([
+            'status' => 'success',
+            'user' => [
+                'id' => $user_id,
+                'name' => $name,
+                'email' => $email,
+                'phone' => $phone
+            ]
+        ]);
+        exit;
+    }
+
+    // User Auth API: Sign In
+    if ($action === 'user-login') {
+        $email = trim($_POST['email'] ?? '');
+        $password = trim($_POST['password'] ?? '');
+
+        if (empty($email) || empty($password)) {
+            echo json_encode(['status' => 'error', 'message' => 'Email and Password are required.']);
+            exit;
+        }
+
+        $stmt = $pdo->prepare("SELECT * FROM users WHERE email = ?");
+        $stmt->execute([$email]);
+        $user = $stmt->fetch();
+
+        if ($user && password_verify($password, $user['password_hash'])) {
+            $_SESSION['user_logged_in'] = true;
+            $_SESSION['user_id'] = $user['id'];
+            $_SESSION['user_name'] = $user['full_name'];
+            $_SESSION['user_email'] = $user['email'];
+            $_SESSION['user_phone'] = $user['phone'];
+
+            echo json_encode([
+                'status' => 'success',
+                'user' => [
+                    'id' => $user['id'],
+                    'name' => $user['full_name'],
+                    'email' => $user['email'],
+                    'phone' => $user['phone']
+                ]
+            ]);
+        } else {
+            echo json_encode(['status' => 'error', 'message' => 'Invalid email or password credentials.']);
+        }
+        exit;
+    }
+
+    // User Auth API: Logout
+    if ($action === 'user-logout') {
+        unset($_SESSION['user_logged_in']);
+        unset($_SESSION['user_id']);
+        unset($_SESSION['user_name']);
+        unset($_SESSION['user_email']);
+        unset($_SESSION['user_phone']);
+        
+        if (isset($_GET['redirect'])) {
+            header('Location: index.php');
+        } else {
+            echo json_encode(['status' => 'success']);
+        }
+        exit;
+    }
+
+    // User Auth API: Retrieve Personal Booking History
+    if ($action === 'get-user-bookings') {
+        if (!isset($_SESSION['user_logged_in']) || $_SESSION['user_logged_in'] !== true) {
+            echo json_encode(['status' => 'error', 'message' => 'Please log in to view booking history.']);
+            exit;
+        }
+
+        $stmt = $pdo->prepare("
+            SELECT b.*, 
+                   GROUP_CONCAT(CONCAT(s.title, ' (@ ', TIME_FORMAT(bi.selected_time, '%h:%i %p'), ')') SEPARATOR ', ') as services
+            FROM bookings b
+            LEFT JOIN booking_items bi ON b.id = bi.booking_id
+            LEFT JOIN services s ON bi.service_id = s.id
+            WHERE b.user_id = ?
+            GROUP BY b.id
+            ORDER BY b.event_date DESC, b.id DESC
+        ");
+        $stmt->execute([$_SESSION['user_id']]);
+        $user_bookings = $stmt->fetchAll();
+
+        $formatted_bookings = array_map(function($bk) {
+            return [
+                'reference' => $bk['booking_reference'],
+                'date' => date("D, M d, Y", strtotime($bk['event_date'])),
+                'total' => number_format($bk['total_price']) . ' BDT',
+                'travel' => number_format($bk['travel_fee']) . ' BDT',
+                'status' => $bk['booking_status'],
+                'services' => $bk['services'] ?? 'N/A',
+                'notes' => $bk['special_notes'] ?? 'None',
+                'address' => $bk['event_address'] ?? 'Studio'
+            ];
+        }, $user_bookings);
+
+        echo json_encode($formatted_bookings);
+        exit;
     }
 
     // A. Fetch Services JSON
@@ -356,6 +513,11 @@ if (isset($_GET['action'])) {
 
     // F. Transactional Database Checkout & Inquiry Submission
     if ($action === 'submit-booking') {
+        if (!isset($_SESSION['user_logged_in']) || $_SESSION['user_logged_in'] !== true) {
+            echo json_encode(['status' => 'auth_required', 'message' => 'Please sign in or create an account to finalize your booking.']);
+            exit;
+        }
+
         $fullName = trim($_POST['name'] ?? '');
         $email = trim($_POST['email'] ?? '');
         $whatsapp = trim($_POST['phone'] ?? '');
@@ -434,13 +596,14 @@ if (isset($_GET['action'])) {
 
             $grand_total = $subtotal + $travel_total;
 
-            // Write Master Entry
+            // Write Master Entry with user_id
             $stmt = $pdo->prepare("
-                INSERT INTO bookings (booking_reference, customer_name, customer_email, customer_phone, event_date, travel_fee, total_price, event_address, skin_profile, special_notes, booking_status) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+                INSERT INTO bookings (booking_reference, user_id, customer_name, customer_email, customer_phone, event_date, travel_fee, total_price, event_address, skin_profile, special_notes, booking_status) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
             ");
             $stmt->execute([
                 $booking_ref,
+                $_SESSION['user_id'],
                 $fullName,
                 $email,
                 $whatsapp,
@@ -1235,6 +1398,24 @@ $db_services = $stmt->fetchAll();
             </nav>
             
             <div class="header-actions">
+                <!-- User Account Profile state -->
+                <div class="header-user-widget" id="header-user-widget">
+                    <?php if (isset($_SESSION['user_logged_in']) && $_SESSION['user_logged_in'] === true): ?>
+                        <div class="user-profile-menu">
+                            <button class="profile-trigger" id="profile-trigger-btn" onclick="BookingApp.toggleProfileDropdown(event)">
+                                <span class="avatar-circle"><?= strtoupper(substr($_SESSION['user_name'], 0, 1)) ?></span>
+                                <span class="user-display-name"><?= htmlspecialchars($_SESSION['user_name']) ?></span>
+                            </button>
+                            <div class="profile-dropdown" id="profile-dropdown">
+                                <a href="#" onclick="BookingApp.showMyBookings(event)">My Bookings</a>
+                                <a href="index.php?action=user-logout&redirect=1">Sign Out</a>
+                            </div>
+                        </div>
+                    <?php else: ?>
+                        <button class="btn-secondary header-login-btn" onclick="BookingApp.openAuthModal()" style="border-color: transparent; background: transparent; padding: 0 0.8rem; font-weight: 600; color: var(--color-plum);">Sign In</button>
+                    <?php endif; ?>
+                </div>
+
                 <!-- Floating Booking Agenda Drawer Trigger -->
                 <button class="agenda-trigger" id="agenda-trigger-btn" aria-label="Open Booking Agenda">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -1754,6 +1935,75 @@ $db_services = $stmt->fetchAll();
                     <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
                     Send Request via Email
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 11A. Luxury User Authentication Modal (Register / Login) -->
+    <div class="modal-overlay" id="auth-modal">
+        <div class="auth-wrapper">
+            <button class="modal-close-btn" onclick="BookingApp.closeAuthModal()" aria-label="Close Authentication">
+                <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+            <h3 class="auth-title" style="font-family: var(--font-serif); font-size: 1.8rem; color: var(--color-plum); text-align: center; margin-bottom: 1.5rem;">🌸 Lavender’s Glam Studio</h3>
+            
+            <div class="auth-tabs">
+                <button class="auth-tab-btn active" id="tab-login-btn" onclick="BookingApp.switchAuthTab('login')">Access Account</button>
+                <button class="auth-tab-btn" id="tab-register-btn" onclick="BookingApp.switchAuthTab('register')">Join Atelier</button>
+            </div>
+
+            <!-- Login Form Pane -->
+            <form id="auth-login-form" class="auth-form active" onsubmit="BookingApp.userLogin(event)">
+                <p class="auth-subtitle">Log in to sync agenda slots and review appointments.</p>
+                <div class="form-group" style="text-align: left; margin-bottom: 1.2rem;">
+                    <label class="form-label" for="login-email">Email Address *</label>
+                    <input type="email" id="login-email" class="form-input" style="background:#fff;" required placeholder="e.g. tasnim@example.com">
+                </div>
+                <div class="form-group" style="text-align: left; margin-bottom: 1.8rem;">
+                    <label class="form-label" for="login-password">Password *</label>
+                    <input type="password" id="login-password" class="form-input" style="background:#fff;" required placeholder="••••••••">
+                </div>
+                <button type="submit" class="drawer-action-btn" style="width: 100%;">Sign In</button>
+            </form>
+
+            <!-- Register Form Pane -->
+            <form id="auth-register-form" class="auth-form" onsubmit="BookingApp.userRegister(event)">
+                <p class="auth-subtitle">Create a glamorous profile to finalize your booking.</p>
+                <div class="form-group" style="text-align: left; margin-bottom: 1rem;">
+                    <label class="form-label" for="reg-name">Full Name *</label>
+                    <input type="text" id="reg-name" class="form-input" style="background:#fff;" required placeholder="e.g. Tasnim Rahman">
+                </div>
+                <div class="form-group" style="text-align: left; margin-bottom: 1rem;">
+                    <label class="form-label" for="reg-email">Email Address *</label>
+                    <input type="email" id="reg-email" class="form-input" style="background:#fff;" required placeholder="e.g. tasnim@example.com">
+                </div>
+                <div class="form-group" style="text-align: left; margin-bottom: 1rem;">
+                    <label class="form-label" for="reg-phone">WhatsApp Number *</label>
+                    <input type="tel" id="reg-phone" class="form-input" style="background:#fff;" required placeholder="e.g. +8801700000000">
+                </div>
+                <div class="form-group" style="text-align: left; margin-bottom: 1.5rem;">
+                    <label class="form-label" for="reg-password">Password *</label>
+                    <input type="password" id="reg-password" class="form-input" style="background:#fff;" required placeholder="••••••••">
+                </div>
+                <button type="submit" class="drawer-action-btn" style="width: 100%;">Create Account</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- 11B. Luxury User Booking History Drawer/Modal -->
+    <div class="modal-overlay" id="user-bookings-modal">
+        <div class="bookings-wrapper">
+            <button class="modal-close-btn" onclick="BookingApp.closeBookingsModal()" aria-label="Close History">
+                <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+            <div class="receipt-icon" style="color: var(--color-gold); margin-bottom: 1rem;">
+                <svg width="32" height="32" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 14V11m0-4h.01"></path></svg>
+            </div>
+            <h3 class="receipt-title" style="font-family: var(--font-serif); font-size: 1.8rem; color: var(--color-plum);">Your Booking Agenda History</h3>
+            <p class="receipt-subtitle" style="margin-bottom: 2rem;">Track and review all compiled artistry reservation inquiries in our studio archive.</p>
+            
+            <div class="bookings-history-list" id="user-bookings-list">
+                <!-- JavaScript renders user booking rows here dynamically -->
             </div>
         </div>
     </div>

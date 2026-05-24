@@ -3,8 +3,8 @@
 -- Optimized InnoDB Relational Design with Cascades & Core Indices
 -- ==========================================================================
 
-CREATE DATABASE IF NOT EXISTS `lavender_glam_db` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE `lavender_glam_db`;
+-- CREATE DATABASE IF NOT EXISTS `lavender_glam_db` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+-- USE `lavender_glam_db`;
 
 -- 1. Users Table
 CREATE TABLE IF NOT EXISTS `users` (

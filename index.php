@@ -1398,6 +1398,18 @@ $db_services = $stmt->fetchAll();
             </nav>
             
             <div class="header-actions">
+                <!-- Floating Booking Agenda Drawer Trigger -->
+                <button class="agenda-trigger" id="agenda-trigger-btn" aria-label="Open Booking Agenda">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                        <line x1="16" y1="2" x2="16" y2="6"></line>
+                        <line x1="8" y1="2" x2="8" y2="6"></line>
+                        <line x1="3" y1="10" x2="21" y2="10"></line>
+                    </svg>
+                    <span class="agenda-badge" id="header-agenda-badge" style="display: none;">0</span>
+                </button>
+                <a href="#services-section" class="btn-primary header-reserve-btn">Reserve Session</a>
+
                 <!-- User Account Profile state -->
                 <div class="header-user-widget" id="header-user-widget">
                     <?php if (isset($_SESSION['user_logged_in']) && $_SESSION['user_logged_in'] === true): ?>
@@ -1415,18 +1427,6 @@ $db_services = $stmt->fetchAll();
                         <button class="btn-secondary header-login-btn" onclick="BookingApp.openAuthModal()" style="border-color: transparent; background: transparent; padding: 0 0.8rem; font-weight: 600; color: var(--color-plum);">Sign In</button>
                     <?php endif; ?>
                 </div>
-
-                <!-- Floating Booking Agenda Drawer Trigger -->
-                <button class="agenda-trigger" id="agenda-trigger-btn" aria-label="Open Booking Agenda">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
-                        <line x1="16" y1="2" x2="16" y2="6"></line>
-                        <line x1="8" y1="2" x2="8" y2="6"></line>
-                        <line x1="3" y1="10" x2="21" y2="10"></line>
-                    </svg>
-                    <span class="agenda-badge" id="header-agenda-badge" style="display: none;">0</span>
-                </button>
-                <a href="#services-section" class="btn-primary header-reserve-btn">Reserve Session</a>
                 
                 <!-- Mobile Menu Hamburger Trigger -->
                 <button class="mobile-menu-trigger" id="mobile-menu-trigger" aria-label="Open Navigation Menu">
